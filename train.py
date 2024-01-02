@@ -239,8 +239,10 @@ def train(seq, exp):
                             if (key != 'cam_m') & (key != 'cam_c'):
                                 new_params[key] = new_params[key][bool_index]
                         #write an images name with the timestep number and sequence name
-                        img_name = f"timestep_{t}_seq_{seq}.png"
-                        utils.render_param(new_params, curr_data, img_name)
+                        for cam in range(len(dataset)):
+                            curr_data = dataset[cam]
+                            img_name = f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}.png"
+                            utils.render_param(new_params, curr_data, img_name)
 
         progress_bar.close()
         output_params.append(params2cpu(params, is_initial_timestep))
