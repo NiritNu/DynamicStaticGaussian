@@ -225,12 +225,12 @@ def train(seq, exp):
                 #saving location and rotation of the gaussians at the last iteration of each timestep
                 if i == num_iter_per_timestep - 1:
                     means3D_list.append(params['means3D'].detach()) 
-                    rotations_list.append(params['unnorm_rotations'].detach())
+                    #rotations_list.append(params['unnorm_rotations'].detach())
                     if not is_initial_timestep:
                         #looping through dictonary params and detaching the tensors
                         new_params = {}
                         for key in params:  
-                           new_params[key] = params[key].detach().clone
+                           new_params[key] = params[key].detach().clone()
                         
                         curr_movment = (means3D_list[-1] - means3D_list[-2]).norm(dim=1) # this will generate the absolute momvment of the gaussians
                         curr_movment_mean = curr_movment.mean() # just foe debug this will be the threshold
@@ -238,7 +238,9 @@ def train(seq, exp):
                         for key in new_params:
                             if (key != 'cam_m') & (key != 'cam_c'):
                                 new_params[key] = new_params[key][bool_index]
-                        utils.render_param(new_params, curr_data, "not_all_gaussians.png")
+                        #write an images name with the timestep number and sequence name
+                        img_name = f"timestep_{t}_seq_{seq}.png"
+                        utils.render_param(new_params, curr_data, img_name)
 
         progress_bar.close()
         output_params.append(params2cpu(params, is_initial_timestep))
