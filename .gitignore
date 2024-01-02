@@ -4,3 +4,4 @@ data/
 output/
 *.zip
 diff-gaussian-rasterization-w-depth-main/
+*.png

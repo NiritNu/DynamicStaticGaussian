@@ -10,6 +10,8 @@ from diff_gaussian_rasterization import GaussianRasterizer as Renderer
 from helpers import setup_camera, l1_loss_v1, l1_loss_v2, weighted_l2_loss_v1, weighted_l2_loss_v2, quat_mult, \
     o3d_knn, params2rendervar, params2cpu, save_params
 from external import calc_ssim, calc_psnr, build_rotation, densify, update_params_and_optimizer
+import utils
+
 
 
 def get_dataset(t, md, seq):
@@ -125,7 +127,7 @@ def get_loss(params, curr_data, variables, is_initial_timestep):
     seen = radius > 0
     variables['max_2D_radius'][seen] = torch.max(radius[seen], variables['max_2D_radius'][seen])
     variables['seen'] = seen
-    return loss, variables
+    return loss, variables, im, curr_data['im']
 
 
 def initialize_per_timestep(params, variables, optimizer):
@@ -185,6 +187,11 @@ def report_progress(params, data, i, progress_bar, every_i=100):
 
 
 def train(seq, exp):
+    vis_images = False
+    #create a list of means3D and rotations for each timestep
+    means3D_list = []
+    rotations_list = []
+
     if os.path.exists(f"./output/{exp}/{seq}"):
         print(f"Experiment '{exp}' for sequence '{seq}' already exists. Exiting.")
         return
@@ -203,14 +210,36 @@ def train(seq, exp):
         progress_bar = tqdm(range(num_iter_per_timestep), desc=f"timestep {t}")
         for i in range(num_iter_per_timestep):
             curr_data = get_batch(todo_dataset, dataset)
-            loss, variables = get_loss(params, curr_data, variables, is_initial_timestep)
+            loss, variables, renderd_im, original_im = get_loss(params, curr_data, variables, is_initial_timestep)
             loss.backward()
             with torch.no_grad():
                 report_progress(params, dataset[0], i, progress_bar)
+                if vis_images:
+                    utils.show_save_image(original_im,"original_im.png")
+                    utils.show_save_image(renderd_im,"renderd_im.png")
+
                 if is_initial_timestep:
                     params, variables = densify(params, variables, optimizer, i)
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
+                #saving location and rotation of the gaussians at the last iteration of each timestep
+                if i == num_iter_per_timestep - 1:
+                    means3D_list.append(params['means3D'].detach()) 
+                    rotations_list.append(params['unnorm_rotations'].detach())
+                    if not is_initial_timestep:
+                        #looping through dictonary params and detaching the tensors
+                        new_params = {}
+                        for key in params:  
+                           new_params[key] = params[key].detach().clone
+                        
+                        curr_movment = (means3D_list[-1] - means3D_list[-2]).norm(dim=1) # this will generate the absolute momvment of the gaussians
+                        curr_movment_mean = curr_movment.mean() # just foe debug this will be the threshold
+                        bool_index = curr_movment > curr_movment_mean # this will generate a boolean index of the gaussians that moved more than the mean
+                        for key in new_params:
+                            if (key != 'cam_m') & (key != 'cam_c'):
+                                new_params[key] = new_params[key][bool_index]
+                        utils.render_param(new_params, curr_data, "not_all_gaussians.png")
+
         progress_bar.close()
         output_params.append(params2cpu(params, is_initial_timestep))
         if is_initial_timestep:
