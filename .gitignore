@@ -2,6 +2,7 @@ __pycache__/
 .idea/
 data/
 output/
+outputDynamicStaticSplitting/
 *.zip
 diff-gaussian-rasterization-w-depth-main/
 *.png
