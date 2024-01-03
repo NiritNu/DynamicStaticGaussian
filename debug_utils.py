@@ -2,6 +2,9 @@ import cv2
 import os
 import matplotlib.pyplot as plt
 import torch
+import numpy as np
+from scipy.signal import find_peaks
+
 
 
 ## ,aking video from images in folder
@@ -58,20 +61,35 @@ def create_hist_from_tensor(tensor, bins):
     width = width.detach().cpu().numpy()
     #saving the histogram an image
     plt.clf()#clearing the figure
-    coordi = range(len(hist))*width
-    plt.bar(range(len(hist)), hist, width=width)
+    coordi = range(len(hist))*width + min_val.detach().cpu().numpy()
+    plt.bar(coordi, hist, width=width)
     #saving to a png file
     plt.savefig('hist.png')
 
     return hist
 
-#finding the peaks in the histogram including finding the best threshold value
-def find_peaks(hist, th):
-    peaks = []
-    for i in range(len(hist)-1):
-        if hist[i] > th:
-            peaks.append(i)
-    return peaks
+
+
+def segment_tensor_using_peaks(tensor, th):
+    # Ensure the tensor is 1D
+    tensor = tensor.flatten()
+
+    # Convert tensor to numpy for histogram
+    #tensor_np = tensor.numpy()
+
+    # Calculate the histogram
+    #hist, bins = np.histogram(tensor_np, bins=256, range=(0,256))
+    hist = create_hist_from_tensor(tensor, 20)
+
+    # Find the peaks of the histogram
+    peaks, _ = find_peaks(hist, height=th)
+
+    # Segment the tensor at the peak intensity values
+    segmented_tensor = torch.zeros_like(tensor, dtype=torch.bool)
+    for peak in peaks:
+        segmented_tensor |= (tensor == peak)
+
+    return segmented_tensor
 
 #sorting each element in torch tensor to the closest number of a second input and returning a new tensor that contains the indexes of the closest numbers
 def sort_to_bins(tensor, bins):

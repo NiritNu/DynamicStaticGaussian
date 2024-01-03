@@ -249,11 +249,11 @@ def train(seq, exp):
                         for cam in range(len(dataset)):
                             curr_data = dataset[cam]
                             #folder to write the images to
-                            folder = f"./outputDynamicStaticSplitting/{exp}/{seq}/timestep_{t}/"
+                            folder = f"./outputDynamicStaticSplitting/{exp}/{seq}/timestep_{t}/movmentandrotation"
                             #create the folder if it doesn't exist
                             if not os.path.exists(folder):
                                 os.makedirs(folder)
-                            img_name = os.path.join(folder,f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}_changed_color.png")
+                            img_name = os.path.join(folder,f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}.png")
                             utils.render_param(new_params, curr_data, img_name)
 
         progress_bar.close()
