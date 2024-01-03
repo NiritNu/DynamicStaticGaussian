@@ -1,6 +1,10 @@
 import cv2
 import os
+import matplotlib.pyplot as plt
+import torch
 
+
+## ,aking video from images in folder
 def convert_images_to_video(image_folder, video_name):
     n = 27  # number of videos
     images = [img for img in os.listdir(image_folder) if img.endswith(".png")]
@@ -41,6 +45,59 @@ def load_images_from_folder(folder):
             images.append(filename)
     images.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
     return images
+
+## Histograms
+
+#creating a histogram from torch tensor and casting it to numpy array
+def create_hist_from_tensor(tensor, bins):
+    hist = torch.histc(tensor, bins=bins)
+    hist = hist.detach().cpu().numpy()
+    max_val = torch.max(tensor)
+    min_val = torch.min(tensor)
+    width = (max_val.to(torch.float64) - min_val.to(torch.float64))/bins
+    width = width.detach().cpu().numpy()
+    #saving the histogram an image
+    plt.clf()#clearing the figure
+    coordi = range(len(hist))*width
+    plt.bar(range(len(hist)), hist, width=width)
+    #saving to a png file
+    plt.savefig('hist.png')
+
+    return hist
+
+#finding the peaks in the histogram including finding the best threshold value
+def find_peaks(hist, th):
+    peaks = []
+    for i in range(len(hist)-1):
+        if hist[i] > th:
+            peaks.append(i)
+    return peaks
+
+#sorting each element in torch tensor to the closest number of a second input and returning a new tensor that contains the indexes of the closest numbers
+def sort_to_bins(tensor, bins):
+    new_tensor = torch.zeros(tensor.shape)
+    for i in range(len(tensor)):
+        min_d   = 1000000
+        min_idx = 0
+        for j in range(len(bins)):
+            if abs(tensor[i]-bins[j]) < min_d:
+                min_d = abs(tensor[i]-bins[j])
+                min_idx = j
+        new_tensor[i] = min_idx 
+    return new_tensor
+
+#return a boolean tensor that contains true in the indexes where the original input tensor is close engouh to the input value
+def find_close_values(tensor, value, th):
+    bool_tensor = torch.zeros(tensor.shape, dtype=torch.bool)
+    diff_tensor = torch.abs(tensor-value)
+    bool_tensor[diff_tensor<th] = True
+    
+    return bool_tensor
+
+
+
+
+
 
 if __name__ == '__main__':
     convert_images_to_video('outputDynamicStaticSplitting/spliting50precentOnlyMeans3D', 'test')

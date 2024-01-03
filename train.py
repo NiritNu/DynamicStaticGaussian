@@ -225,7 +225,7 @@ def train(seq, exp):
                 #saving location and rotation of the gaussians at the last iteration of each timestep
                 if i == num_iter_per_timestep - 1:
                     means3D_list.append(params['means3D'].detach()) 
-                    #rotations_list.append(params['unnorm_rotations'].detach())
+                    rotations_list.append(params['unnorm_rotations'].detach())
                     if not is_initial_timestep:
                         #looping through dictonary params and detaching the tensors
                         new_params = {}
@@ -234,14 +234,26 @@ def train(seq, exp):
                         
                         curr_movment = (means3D_list[-1] - means3D_list[-2]).norm(dim=1) # this will generate the absolute momvment of the gaussians
                         curr_movment_mean = curr_movment.mean() # just foe debug this will be the threshold
-                        bool_index = curr_movment > curr_movment_mean # this will generate a boolean index of the gaussians that moved more than the mean
+                        curr_rotatiton = (rotations_list[-1] - rotations_list[-2]).norm(dim=1) # this will generate the absolute momvment of the gaussians
+                        curr_rotation_mean = curr_movment.mean() # just foe debug this will be the threshold
+                        bool_index_movment = curr_movment > curr_movment_mean # this will generate a boolean index of the gaussians that moved more than the mean
+                        bool_index_rotation = curr_rotatiton > curr_rotation_mean
+                        bool_index = bool_index_movment | bool_index_rotation # this will generate a boolean index of the gaussians that moved more than the mean in both movment and rotation
                         for key in new_params:
                             if (key != 'cam_m') & (key != 'cam_c'):
                                 new_params[key] = new_params[key][bool_index]
+                        #change color of the gaussians that moved more than the mean
+                        #create a new tensor of the same size new_params['rgb_colors'] and fill ech row with [0.0, 1.0, 0.0]
+                        new_params['rgb_colors'] = torch.zeros_like(new_params['rgb_colors']) + torch.tensor([0.0, 1.0, 0.0]).to(new_params['rgb_colors'].device)
                         #write an images name with the timestep number and sequence name
                         for cam in range(len(dataset)):
                             curr_data = dataset[cam]
-                            img_name = f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}.png"
+                            #folder to write the images to
+                            folder = f"./outputDynamicStaticSplitting/{exp}/{seq}/timestep_{t}/"
+                            #create the folder if it doesn't exist
+                            if not os.path.exists(folder):
+                                os.makedirs(folder)
+                            img_name = os.path.join(folder,f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}_changed_color.png")
                             utils.render_param(new_params, curr_data, img_name)
 
         progress_bar.close()

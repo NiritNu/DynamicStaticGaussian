@@ -4,5 +4,9 @@ data/
 output/
 outputDynamicStaticSplitting/
 *.zip
+*.tar.gz
+*.tar
+*.gz
+*.mp4
 diff-gaussian-rasterization-w-depth-main/
 *.png
