@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from scipy.signal import find_peaks
+from scipy import stats
 
 
 
@@ -51,8 +52,27 @@ def load_images_from_folder(folder):
 
 ## Histograms
 
+# Create a torch vector with two normal distributions
+def create_vector(mean1, std1, mean2, std2, size):
+    half = size // 2
+    # Create first half of the vector with a normal distribution centered around mean1
+    vec1 = torch.normal(mean=mean1, std=std1, size=(half,))
+    # Create second half of the vector with a normal distribution centered around mean2
+    vec2 = torch.normal(mean=mean2, std=std2, size=(size-half,))
+    # Concatenate the two halves to create the full vector
+    vec = torch.cat((vec1, vec2))
+    return vec
+
+#vec = create_vector(3, 1, -3, 1, 1000)
+
+#The Z-score is a measure of how many standard deviations an element is from the mean. Elements with a Z-score greater than a threshold (for example, 3) are considered outliers.
+def remove_outliers(data, z_threshold=3):
+    z_scores = np.abs(stats.zscore(data))
+    data[z_scores > z_threshold] = 0
+    return data
+
 #creating a histogram from torch tensor and casting it to numpy array
-def create_hist_from_tensor(tensor, bins):
+def create_hist_from_tensor_and_calc_peaks_values(tensor, bins, calc_peaks=False, g=10, n=2):
     hist = torch.histc(tensor, bins=bins)
     hist = hist.detach().cpu().numpy()
     max_val = torch.max(tensor)
@@ -65,6 +85,26 @@ def create_hist_from_tensor(tensor, bins):
     plt.bar(coordi, hist, width=width)
     #saving to a png file
     plt.savefig('hist.png')
+
+    if calc_peaks:
+        #assuming that g gaussinas and less cant represenr an object therfore zero out all places in the histogram that are less than g
+        hist[hist<g] = 0
+        # Find the indices where the histogram is zero
+        zero_indices = np.where(hist == 0)[0]
+
+        # Find the start indices of runs of n consecutive zeros
+        diff = np.diff(zero_indices)
+        #split_length = diff[np.where(diff > n)[0]] - 1
+
+        start_index = 0
+        peaks = []
+
+        for l in diff:
+            if l > n:
+                max_index_sub_hist = np.argmax(hist[start_index:start_index+l])
+                peaks.append(hist[max_index_sub_hist])
+            start_index += l
+
 
     return hist
 
@@ -90,6 +130,8 @@ def segment_tensor_using_peaks(tensor, th):
         segmented_tensor |= (tensor == peak)
 
     return segmented_tensor
+
+
 
 #sorting each element in torch tensor to the closest number of a second input and returning a new tensor that contains the indexes of the closest numbers
 def sort_to_bins(tensor, bins):
