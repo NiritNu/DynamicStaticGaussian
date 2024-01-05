@@ -10,7 +10,7 @@ from diff_gaussian_rasterization import GaussianRasterizer as Renderer
 from helpers import setup_camera, l1_loss_v1, l1_loss_v2, weighted_l2_loss_v1, weighted_l2_loss_v2, quat_mult, \
     o3d_knn, params2rendervar, params2cpu, save_params
 from external import calc_ssim, calc_psnr, build_rotation, densify, update_params_and_optimizer
-import utils
+import utils, debug_utils
 
 
 
@@ -233,31 +233,38 @@ def train(seq, exp):
                            new_params[key] = params[key].detach().clone()
                         
                         curr_movment = (means3D_list[-1] - means3D_list[-2]).norm(dim=1) # this will generate the absolute momvment of the gaussians
+                        
                         curr_movment_mean = curr_movment.mean() # just foe debug this will be the threshold
-                        curr_rotatiton = (rotations_list[-1] - rotations_list[-2]).norm(dim=1) # this will generate the absolute momvment of the gaussians
+                        #curr_rotatiton = (rotations_list[-1] - rotations_list[-2]).norm(dim=1) # this will generate the absolute momvment of the gaussians
                         #curr_rotation_mean = curr_movment.mean() # just foe debug this will be the threshold
                         #top 10% of a curr_rotatiton
-                        precent = 0.1
-                        curr_rotation_mean = curr_rotatiton.topk(int(curr_rotatiton.shape[0]*precent),largest=True)[0].mean()
+                        #precent = 0.1
+                        #curr_rotation_mean = curr_rotatiton.topk(int(curr_rotatiton.shape[0]*precent),largest=True)[0].mean()
                         bool_index_movment = curr_movment > curr_movment_mean # this will generate a boolean index of the gaussians that moved more than the mean
-                        bool_index_rotation = curr_rotatiton > curr_rotation_mean
-                        bool_index = bool_index_movment | bool_index_rotation # this will generate a boolean index of the gaussians that moved more than the mean in both movment and rotation
-                        for key in new_params:
-                            if (key != 'cam_m') & (key != 'cam_c'):
-                                new_params[key] = new_params[key][bool_index]
+                        obj_params = debug_utils.segmenting_by_movement(curr_movment, new_params, bool_index_movment, g=10, n=2)
+                        #bool_index_rotation = curr_rotatiton > curr_rotation_mean
+                        #bool_index = bool_index_movment | bool_index_rotation # this will generate a boolean index of the gaussians that moved more than the mean in both movment and rotation
+                        #for key in new_params:
+                        #    if (key != 'cam_m') & (key != 'cam_c'):
+                        #        new_params[key] = new_params[key][bool_index]
                         #change color of the gaussians that moved more than the mean
                         #create a new tensor of the same size new_params['rgb_colors'] and fill ech row with [0.0, 1.0, 0.0]
                         #new_params['rgb_colors'] = torch.zeros_like(new_params['rgb_colors']) + torch.tensor([0.0, 1.0, 0.0]).to(new_params['rgb_colors'].device)
                         #write an images name with the timestep number and sequence name
                         for cam in range(len(dataset)):
                             curr_data = dataset[cam]
-                            #folder to write the images to
-                            folder = f"./outputDynamicStaticSplitting/{exp}/{seq}/timestep_{t}/movmentandrotation"
-                            #create the folder if it doesn't exist
-                            if not os.path.exists(folder):
-                                os.makedirs(folder)
-                            img_name = os.path.join(folder,f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}_just rotation.png")
-                            utils.render_param(new_params, curr_data, img_name)
+                            for obj in range(len(obj_params)):
+                                if obj_params[obj]['means3D'].shape[0] == 0:
+                                    continue
+                                else:
+
+                                    #create a folder to write the images to
+                                    folder = f"./outputDynamicStaticSplitting/{exp}/{seq}/timestep_{t}/movment"
+                                    #create the folder if it doesn't exist
+                                    if not os.path.exists(folder):
+                                        os.makedirs(folder)
+                                    img_name = os.path.join(folder,f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}_obj_{obj}.png")
+                                    utils.render_param(obj_params[obj], curr_data, img_name)
 
         progress_bar.close()
         output_params.append(params2cpu(params, is_initial_timestep))

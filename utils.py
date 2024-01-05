@@ -61,6 +61,6 @@ def delete_rows(params, th):
 
 #calaulate speed from position difference and frame rate
 def calc_speed(pos_diff):
-    frame_rate = 0.5/15 # 0.5 seconds per 15 frames as mention in the paper web page
+    frame_rate = 15/0.5 # 0.5 seconds per 15 frames as mention in the paper web page
     speed = pos_diff*frame_rate
     return speed

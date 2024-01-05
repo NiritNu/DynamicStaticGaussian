@@ -5,6 +5,8 @@ import torch
 import numpy as np
 from scipy.signal import find_peaks
 from scipy import stats
+from mpl_toolkits.mplot3d import Axes3D
+
 
 
 
@@ -73,16 +75,22 @@ def remove_outliers(data, z_threshold=3):
 
 #creating a histogram from torch tensor and casting it to numpy array
 def create_hist_from_tensor_and_calc_peaks_values(tensor, bins, calc_peaks=False, g=10, n=2):
-    hist = torch.histc(tensor, bins=bins)
+    max_val = tensor.max().item()
+    min_val = tensor.min().item()
+    hist = torch.histc(tensor, bins=bins, min=min_val, max=max_val)
     hist = hist.detach().cpu().numpy()
-    max_val = torch.max(tensor)
-    min_val = torch.min(tensor)
-    width = (max_val.to(torch.float64) - min_val.to(torch.float64))/bins
-    width = width.detach().cpu().numpy()
+    #width = (max_val.to(torch.float64) - min_val.to(torch.float64))/bins
+    #width = width.detach().cpu().numpy()
+    width=(max_val-min_val)/bins
     #saving the histogram an image
     plt.clf()#clearing the figure
-    coordi = range(len(hist))*width + min_val.detach().cpu().numpy()
-    plt.bar(coordi, hist, width=width)
+    #copilot I did not checj:
+    bin_edges = np.linspace(min_val, max_val, bins+1)
+
+    # Calculate the x-labels (centers of the bins)
+    x_labels = (bin_edges[:-1] + bin_edges[1:]) / 2
+    #coordi = range(len(hist))*width + min_val.detach().cpu().numpy()
+    plt.bar(x_labels, hist, width,align='center')
     #saving to a png file
     plt.savefig('hist.png')
 
@@ -91,48 +99,79 @@ def create_hist_from_tensor_and_calc_peaks_values(tensor, bins, calc_peaks=False
         hist[hist<g] = 0
         # Find the indices where the histogram is zero
         zero_indices = np.where(hist == 0)[0]
+        zero_indices = np.insert(zero_indices, 0, 0)
 
         # Find the start indices of runs of n consecutive zeros
         diff = np.diff(zero_indices)
         #split_length = diff[np.where(diff > n)[0]] - 1
 
-        start_index = 0
+        start_index = 1 #to do : I am not using 0 because it is zero movment and I am not intersted in it
         peaks = []
 
+        #todo: check if i dont need to substract 1 from max_index_sub_hist
         for l in diff:
             if l > n:
-                max_index_sub_hist = np.argmax(hist[start_index:start_index+l])
-                peaks.append(hist[max_index_sub_hist])
+                max_index_sub_hist = np.argmax(hist[start_index:start_index+l-1]) + start_index
+                peaks.append(x_labels[max_index_sub_hist])
             start_index += l
 
 
-    return hist
+    return hist, peaks
 
 
+def segmenting_by_movement(curr_movment,params, bool_index_movment, g=10, n=2):
+    
+    # Calculate the histogram and peaks
+    _, peaks = create_hist_from_tensor_and_calc_peaks_values(curr_movment, int(len(curr_movment)/1000), calc_peaks=True, g=g, n=n)
 
-def segment_tensor_using_peaks(tensor, th):
-    # Ensure the tensor is 1D
-    tensor = tensor.flatten()
+    curr_movment = curr_movment.detach()
+    #expanding curr_movement len(bins) times
+    curr_movment_mat= curr_movment.repeat(len(peaks), 1)
+    peaks_tensor = torch.tensor(peaks).unsqueeze(1).repeat(1,curr_movment.shape[0]).to(device=curr_movment.device)
+    diff_mat = torch.abs(curr_movment_mat - peaks_tensor)
+    #create boolean tensor that contains True to the largest value in each coloumn on diff_mat
+    bool_tensor = torch.zeros(diff_mat.shape, dtype=torch.bool)
+    max_tensor = torch.max(diff_mat, dim=0)
+    bool_tensor[max_tensor[1], torch.arange(len(max_tensor[1]))] = True
 
-    # Convert tensor to numpy for histogram
-    #tensor_np = tensor.numpy()
+    obj_params = []
+    for obj in range(len(peaks)):
+        obj_params.append(params.copy())
+        for key in obj_params[-1]:
+                if (key != 'cam_m') & (key != 'cam_c'):
+                    bool_tensor[obj,:] = bool_tensor[obj,:] & bool_index_movment.to(device=bool_tensor.device)
+                    obj_params[-1][key] = obj_params[-1][key][bool_tensor[obj,:]]
 
-    # Calculate the histogram
-    #hist, bins = np.histogram(tensor_np, bins=256, range=(0,256))
-    hist = create_hist_from_tensor(tensor, 20)
+    #I have the object divided by speed now I need to divide it by location (obj_params['means3D'])
+    
+    return obj_params
 
-    # Find the peaks of the histogram
-    peaks, _ = find_peaks(hist, height=th)
+#I have the object divided by speed now I need to divide it by location (obj_params['means3D'])
+'''def segmenting_by_location(obj_params, bins):
+    #going throgh all objects with the same speed and dividing them by location
+    for obj in range(len(obj_params)):
+        location = obj_params[obj]['means3D']
+        # Calculate the histogram and peaks 3D location
+        # Defune the number of bins for each dimension
+        bins = [bins, bins, bins]
+        # Compute the 3D histogram
+        hist_3d, edges = np.histogramdd(location.detach().cpu().numpy(), bins=bins)
+        # Create a 3D plot
+    plt.clf()
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    xedges, yedges, zedges = edges
+    xpos, ypos = np.meshgrid(xedges[:-1] + 0.25, yedges[:-1] + 0.25, indexing="ij")
+    xpos = xpos.ravel()
+    ypos = ypos.ravel()
+    zpos = 0
+    dx = dy = 0.5 * np.ones_like(zpos)
+    dz = hist_3d.ravel()
+    ax.bar3d(xpos, ypos, zpos, dx, dy, dz, zsort='average')
+    plt.savefig('location_hist.png')'''
+        
 
-    # Segment the tensor at the peak intensity values
-    segmented_tensor = torch.zeros_like(tensor, dtype=torch.bool)
-    for peak in peaks:
-        segmented_tensor |= (tensor == peak)
-
-    return segmented_tensor
-
-
-
+    
 #sorting each element in torch tensor to the closest number of a second input and returning a new tensor that contains the indexes of the closest numbers
 def sort_to_bins(tensor, bins):
     new_tensor = torch.zeros(tensor.shape)
@@ -145,6 +184,8 @@ def sort_to_bins(tensor, bins):
                 min_idx = j
         new_tensor[i] = min_idx 
     return new_tensor
+
+
 
 #return a boolean tensor that contains true in the indexes where the original input tensor is close engouh to the input value
 def find_close_values(tensor, value, th):
