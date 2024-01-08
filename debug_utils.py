@@ -41,6 +41,56 @@ def convert_images_to_video(image_folder, video_name):
     for i in range(len(video)):
         video[i].release()
 
+#the function conveet images to video but the images are sorted by timestep and not by cam_id_and an object
+def convert_images_to_video2(image_main_folder, video_name):
+    n = 27  # number of cameras
+    # going throgh all folders in image_main_folder named timestep_* only
+    first_time = True
+    # going throgh all folders in image_main_folder
+    timesteps = os.listdir(image_main_folder)
+    timesteps.sort(key=lambda f: int(''.join(filter(str.isdigit, f.split('_')[1]))))
+    for folder in timesteps: # gioing throgh all timesteps
+        image_folder = os.path.join(image_main_folder, folder)
+        #check if folder is named timestep_*
+        if image_folder.split('/')[-1].split('_')[0] == 'timestep':
+            image_folder = os.path.join(image_folder, 'movment')
+            
+            images = [img for img in os.listdir(image_folder) if img.endswith(".png")]
+            #sort images to different movies by cam_id number , file name is  of shape timestep_1_seq_basketball_cam_id_0_obj_0.png
+            images.sort(key=lambda f: int(''.join(filter(str.isdigit, f.split('_')[6]))))
+            # find how many objects are in the folder
+            #go throg all images and find the number of objects
+            num_of_objects = []
+            for img in images:
+                num_of_objects.append(int(img.split('_')[-1].split('.')[0]))
+            objects_ids = np.array(list(set(num_of_objects)))
+            object_num = len(objects_ids)
+            
+            if first_time:
+                all_videos = [[[] for _ in range(object_num)] for _ in range(n)]
+                first_time = False
+            index = 0
+            
+            for cam_id in range(n):
+                all_images_per_object = images[index:index+object_num]
+                all_images_per_object.sort(key=lambda f: int(''.join(filter(str.isdigit, f.split('_')[-1].split('.')[0]))))
+                for o in range(object_num):
+                    all_videos[cam_id][o].append(all_images_per_object[o])
+                   
+                index += object_num
+    
+    # write each cam_id and object to a different video
+    for cam_id in range(n):
+        for o in range(object_num):
+            time_step = '_'.join(all_videos[cam_id][o][0].split('_')[0:2])
+            frame = cv2.imread(os.path.join(image_main_folder,time_step,'movment',all_videos[cam_id][o][0]))
+            height, width, _ = frame.shape
+            video = cv2.VideoWriter(video_name + '_cam_id_' + str(cam_id) + '_obj_' + str(o) + '.mp4', cv2.VideoWriter_fourcc(*"mp4v"), 30, (width, height))
+            for im in all_videos[cam_id][o]:
+                time_step = '_'.join(im.split('_')[0:2])
+                video.write(cv2.imread(os.path.join(image_main_folder,time_step,'movment', im)))
+            video.release()
+    
 
 
 # a function that upload all png files in folder and sort it in a list by str can_id in the file name
@@ -201,4 +251,5 @@ def find_close_values(tensor, value, th):
 
 
 if __name__ == '__main__':
-    convert_images_to_video('outputDynamicStaticSplitting/spliting50precentOnlyMeans3D', 'test')
+    #convert_images_to_video('outputDynamicStaticSplitting/spliting50precentOnlyMeans3D', 'test')
+    convert_images_to_video2('outputDynamicStaticSplitting/exp1/basketball', 'test2')
