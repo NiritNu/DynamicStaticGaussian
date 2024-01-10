@@ -11,6 +11,10 @@ from helpers import setup_camera, l1_loss_v1, l1_loss_v2, weighted_l2_loss_v1, w
     o3d_knn, params2rendervar, params2cpu, save_params
 from external import calc_ssim, calc_psnr, build_rotation, densify, update_params_and_optimizer
 import utils, debug_utils
+import clip_utils
+import clip
+import my_clip_debug
+import my_models
 
 
 
@@ -210,6 +214,18 @@ def train(seq, exp):
         progress_bar = tqdm(range(num_iter_per_timestep), desc=f"timestep {t}")
         for i in range(num_iter_per_timestep):
             curr_data = get_batch(todo_dataset, dataset)
+            # debug clip:
+            #im_to_encode = utils.render_param(params, curr_data, None, save_im=False)
+            #wclip_features = my_clip_debug.clip_image_encoder(im_to_encode, device="cuda")
+            #debug Unet:
+            concat_params = utils.concat_params(params2rendervar(params))
+            modelU = my_models.UNet()
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+            # Move the model to the device
+            modelU = modelU.to(device)
+            out_put = modelU(concat_params)
+            output_2_render  = utils.split_params(out_put)
             loss, variables, renderd_im, original_im = get_loss(params, curr_data, variables, is_initial_timestep)
             loss.backward()
             with torch.no_grad():
@@ -264,7 +280,7 @@ def train(seq, exp):
                                     if not os.path.exists(folder):
                                         os.makedirs(folder)
                                     img_name = os.path.join(folder,f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}_obj_{obj}.png")
-                                    utils.render_param(obj_params[obj], curr_data, img_name)
+                                    _ = utils.render_param(obj_params[obj], curr_data, img_name, save_im=True)
 
         progress_bar.close()
         output_params.append(params2cpu(params, is_initial_timestep))

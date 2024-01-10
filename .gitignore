@@ -8,5 +8,6 @@ outputDynamicStaticSplitting/
 *.tar
 *.gz
 *.mp4
+*.pth
 diff-gaussian-rasterization-w-depth-main/
 *.png

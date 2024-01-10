@@ -36,7 +36,7 @@ def track_diff(param):
     return param_diff
 
 #create a function that takes parametrs and renders them as images
-def  render_param(params, curr_data, img_name):
+def  render_param(params, curr_data, img_name, save_im = False):
     #loop over dictonary params and detach the tensors
     for key in params:
         params[key] = params[key].detach() 
@@ -45,7 +45,9 @@ def  render_param(params, curr_data, img_name):
     im, _, _, = Renderer(raster_settings=curr_data['cam'])(**rendervar)
     curr_id = curr_data['id']
     im = torch.exp(params['cam_m'][curr_id])[:, None, None] * im + params['cam_c'][curr_id][:, None, None]
-    show_save_image(im, img_name)
+    if save_im:
+        show_save_image(im, img_name)
+    return im
 
 def delete_rows_by_thresh(arr, th):
     bool_tensor = arr[arr<th]
@@ -64,3 +66,19 @@ def calc_speed(pos_diff):
     frame_rate = 15/0.5 # 0.5 seconds per 15 frames as mention in the paper web page
     speed = pos_diff*frame_rate
     return speed
+
+# take all parameters and concat them to one tensor
+def concat_params(params):
+    concat_params = torch.cat((params['means3D'], params['colors_precomp'], params['rotations'], params['opacities'], params['scales'],params['means2D']), dim=1)
+    return concat_params
+
+#takes one tensor and split it to the different parameters the opposite of concat_params
+def split_params(params):
+    params_dict = {}
+    params_dict['means3D'] = params[:, :3]
+    params_dict['colors_precomp'] = params[:, 3:6]
+    params_dict['rotations'] = params[:, 6:9]
+    params_dict['opacities'] = params[:, 9:10]
+    params_dict['scales'] = params[:, 10:11]
+    params_dict['means2D'] = params[:, 11:13]
+    return params_dict
