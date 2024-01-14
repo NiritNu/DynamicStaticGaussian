@@ -28,7 +28,20 @@ def setup_camera(w, h, k, w2c, near=0.01, far=100):
         campos=cam_center,
         prefiltered=False
     )
-    return cam
+
+    camera_parameters = {
+        'image_height' : h,
+        'image_width' : w,
+        'tanfovx' : w / (2 * fx),
+        'tanfovy' : h / (2 * fy),
+        'bg' : torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda"),
+        'scale_modifier' : 1.0,
+        'viewmatrix' : w2c,
+        'projmatrix' : full_proj,
+        'sh_degree' : 0,
+        'campos' : cam_center,
+        'prefiltered' : False}
+    return cam, camera_parameters
 
 
 def params2rendervar(params):

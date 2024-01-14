@@ -49,4 +49,4 @@ fetuare_pre_pixel = F.interpolate(predictor.features, (sam.image_encoder.img_siz
 h,w = predictor.input_size
 fetuare_pre_pixel_no_pad= fetuare_pre_pixel[..., :h, :w]
 #scale down emb_no_pad by factor scale
-feature_to_original_image_size = F.interpolate(fetuare_pre_pixel_no_pad, (fetuare_pre_pixel_no_pad.shape[-2]//scale, fetuare_pre_pixel_no_pad.shape[-1]//scale), mode="bilinear", align_corners=False)
+feature_to_original_image_size = F.interpolate(fetuare_pre_pixel_no_pad, (int((fetuare_pre_pixel_no_pad.shape[-2]+0.5)//scale), int((fetuare_pre_pixel_no_pad.shape[-1]+0.5)//scale)), mode="bilinear", align_corners=False)

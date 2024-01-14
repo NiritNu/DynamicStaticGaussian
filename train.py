@@ -22,14 +22,14 @@ def get_dataset(t, md, seq):
     dataset = []
     for c in range(len(md['fn'][t])):
         w, h, k, w2c = md['w'], md['h'], md['k'][t][c], md['w2c'][t][c]
-        cam = setup_camera(w, h, k, w2c, near=1.0, far=100)
+        cam, cam_params = setup_camera(w, h, k, w2c, near=1.0, far=100)
         fn = md['fn'][t][c]
         im = np.array(copy.deepcopy(Image.open(f"./data/{seq}/ims/{fn}")))
         im = torch.tensor(im).float().cuda().permute(2, 0, 1) / 255
         seg = np.array(copy.deepcopy(Image.open(f"./data/{seq}/seg/{fn.replace('.jpg', '.png')}"))).astype(np.float32)
         seg = torch.tensor(seg).float().cuda()
         seg_col = torch.stack((seg, torch.zeros_like(seg), 1 - seg))
-        dataset.append({'cam': cam, 'im': im, 'seg': seg_col, 'id': c})
+        dataset.append({'cam': cam, 'im': im, 'seg': seg_col, 'id': c, 'cam_params': cam_params})
     return dataset
 
 
@@ -196,9 +196,9 @@ def train(seq, exp):
     means3D_list = []
     rotations_list = []
 
-    if os.path.exists(f"./output/{exp}/{seq}"):
+    '''if os.path.exists(f"./output/{exp}/{seq}"):
         print(f"Experiment '{exp}' for sequence '{seq}' already exists. Exiting.")
-        return
+        return'''
     md = json.load(open(f"./data/{seq}/train_meta.json", 'r'))  # metadata
     num_timesteps = len(md['fn'])
     params, variables = initialize_params(seq, md)
@@ -218,14 +218,14 @@ def train(seq, exp):
             #im_to_encode = utils.render_param(params, curr_data, None, save_im=False)
             #wclip_features = my_clip_debug.clip_image_encoder(im_to_encode, device="cuda")
             #debug Unet:
-            concat_params = utils.concat_params(params2rendervar(params))
-            modelU = my_models.UNet()
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            #concat_params = utils.concat_params(params2rendervar(params))
+            #modelU = my_models.UNet()
+            #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
             # Move the model to the device
-            modelU = modelU.to(device)
-            out_put = modelU(concat_params)
-            output_2_render  = utils.split_params(out_put)
+            #modelU = modelU.to(device)
+            #out_put = modelU(concat_params)
+            #output_2_render  = utils.split_params(out_put)
             loss, variables, renderd_im, original_im = get_loss(params, curr_data, variables, is_initial_timestep)
             loss.backward()
             with torch.no_grad():
