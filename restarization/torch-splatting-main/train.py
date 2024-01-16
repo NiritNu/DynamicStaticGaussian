@@ -13,6 +13,11 @@ import contextlib
 
 from torch.profiler import profile, ProfilerActivity
 
+from diff_gaussian_rasterization import GaussianRasterizer as Renderer
+
+#from helpers import params2rendervar, setup_camera
+
+
 USE_GPU_PYTORCH = True
 USE_PROFILE = False
 
@@ -41,6 +46,25 @@ class GSSTrainer(Trainer):
         with prof:
             out = self.gaussRender(pc=self.model, camera=camera)
 
+        #Nirit: rander using CUDA for debug
+        #w, h = 256, 256
+        #seg = np.zeros((self.model._xyz.shape[0], 1))
+        # max_cams = 50
+        #params = {
+        #'means3D': self.model._xyz #init_pt_cld[:, :3],
+        #'rgb_colors': self.model._features_dc.squeeze().shape #init_pt_cld[:, 3:6],
+        #'seg_colors': np.stack((seg, np.zeros_like(seg), 1 - seg), -1),
+        #'unnorm_rotations': self.model._rotation #np.tile([1, 0, 0, 0], (seg.shape[0], 1)),
+        #'logit_opacities': self.model.__opacity #np.zeros((seg.shape[0], 1)),
+        #'log_scales': self.model._scaling #np.tile(np.log(np.sqrt(mean3_sq_dist))[..., None], (1, 3)),
+        #'cam_m': np.zeros((max_cams, 3)),
+        #'cam_c': np.zeros((max_cams, 3)),
+        #}
+        #params = {k: torch.nn.Parameter(torch.tensor(v).cuda().float().contiguous().requires_grad_(False)) for k, v in
+        #      params.items()}
+        #params2rendervar(params)
+        #setup_camera(w, h, k, w2c, near=0.01, far=100)
+        #im, radius, _, = Renderer(raster_settings=curr_data['cam'])(**rendervar)
         if USE_PROFILE:
             print(prof.key_averages(group_by_stack_n=True).table(sort_by='self_cuda_time_total', row_limit=20))
 

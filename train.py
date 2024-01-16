@@ -7,14 +7,17 @@ from PIL import Image
 from random import randint
 from tqdm import tqdm
 from diff_gaussian_rasterization import GaussianRasterizer as Renderer
+from diff_gaussian_rasterization_contrastive_f import GaussianRasterizer as Renderer_contrastive_f
+#from diff_gaussian_rasterization_
 from helpers import setup_camera, l1_loss_v1, l1_loss_v2, weighted_l2_loss_v1, weighted_l2_loss_v2, quat_mult, \
-    o3d_knn, params2rendervar, params2cpu, save_params
+    o3d_knn, params2rendervar, params2cpu, save_params, params2rendervar2, setup_camera2
 from external import calc_ssim, calc_psnr, build_rotation, densify, update_params_and_optimizer
 import utils, debug_utils
 import clip_utils
 import clip
 import my_clip_debug
 import my_models
+from torch_splatting.train import train_for_feature as spllating_torch_train
 
 
 
@@ -29,8 +32,23 @@ def get_dataset(t, md, seq):
         seg = np.array(copy.deepcopy(Image.open(f"./data/{seq}/seg/{fn.replace('.jpg', '.png')}"))).astype(np.float32)
         seg = torch.tensor(seg).float().cuda()
         seg_col = torch.stack((seg, torch.zeros_like(seg), 1 - seg))
-        dataset.append({'cam': cam, 'im': im, 'seg': seg_col, 'id': c, 'cam_params': cam_params})
+        dataset.append({'cam': cam, 'im': im, 'seg': seg_col, 'id': c, 'cam_params': cam_params, 'image_path':f"./data/{seq}/ims/{fn}"})
     return dataset
+
+def get_dataset2(t, md, seq):
+    dataset = []
+    for c in range(len(md['fn'][t])):
+        w, h, k, w2c = md['w'], md['h'], md['k'][t][c], md['w2c'][t][c]
+        cam = setup_camera2(w, h, k, w2c, near=1.0, far=100)
+        fn = md['fn'][t][c]
+        im = np.array(copy.deepcopy(Image.open(f"./data/{seq}/ims/{fn}")))
+        im = torch.tensor(im).float().cuda().permute(2, 0, 1) / 255
+        seg = np.array(copy.deepcopy(Image.open(f"./data/{seq}/seg/{fn.replace('.jpg', '.png')}"))).astype(np.float32)
+        seg = torch.tensor(seg).float().cuda()
+        seg_col = torch.stack((seg, torch.zeros_like(seg), 1 - seg))
+        dataset.append({'cam': cam, 'im': im, 'seg': seg_col, 'id': c})
+    return dataset
+
 
 
 def get_batch(todo_dataset, dataset):
@@ -206,6 +224,7 @@ def train(seq, exp):
     output_params = []
     for t in range(num_timesteps):
         dataset = get_dataset(t, md, seq)
+        dataset2 = get_dataset2(t,md,seq)
         todo_dataset = []
         is_initial_timestep = (t == 0)
         if not is_initial_timestep:
@@ -214,6 +233,7 @@ def train(seq, exp):
         progress_bar = tqdm(range(num_iter_per_timestep), desc=f"timestep {t}")
         for i in range(num_iter_per_timestep):
             curr_data = get_batch(todo_dataset, dataset)
+            curr_data2 = get_batch(todo_dataset, dataset2)
             # debug clip:
             #im_to_encode = utils.render_param(params, curr_data, None, save_im=False)
             #wclip_features = my_clip_debug.clip_image_encoder(im_to_encode, device="cuda")
@@ -226,6 +246,10 @@ def train(seq, exp):
             #modelU = modelU.to(device)
             #out_put = modelU(concat_params)
             #output_2_render  = utils.split_params(out_put)
+            #check the renser_f I downloaded
+            rendervar = params2rendervar(params)
+            rendervar['means2D'].retain_grad()
+            im, radius = Renderer_contrastive_f(raster_settings=curr_data2['cam'])(**rendervar)
             loss, variables, renderd_im, original_im = get_loss(params, curr_data, variables, is_initial_timestep)
             loss.backward()
             with torch.no_grad():
@@ -238,6 +262,8 @@ def train(seq, exp):
                     params, variables = densify(params, variables, optimizer, i)
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
+                if i == 5000:# >=1: #change it in the future, anyhow 0 is for debug
+                    spllating_torch_train(params, dataset)
                 #saving location and rotation of the gaussians at the last iteration of each timestep
                 if i == num_iter_per_timestep - 1:
                     means3D_list.append(params['means3D'].detach()) 
