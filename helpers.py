@@ -87,15 +87,14 @@ def params2rendervar(params):
     }
     return rendervar
 
-def params2rendervar2(params):
+def params2rendervar_f(params):
     rendervar = {
         'means3D': params['means3D'],
-        'colors_precomp': params['rgb_colors'],
+        'colors_precomp': params['features'],
         'rotations': torch.nn.functional.normalize(params['unnorm_rotations']),
         'opacities': torch.sigmoid(params['logit_opacities']),
         'scales': torch.exp(params['log_scales']),
         'means2D': torch.zeros_like(params['means3D'], requires_grad=True, device="cuda") + 0,
-        'debug': False
     }
     return rendervar
 

@@ -10,7 +10,7 @@ from diff_gaussian_rasterization import GaussianRasterizer as Renderer
 from diff_gaussian_rasterization_contrastive_f import GaussianRasterizer as Renderer_contrastive_f
 #from diff_gaussian_rasterization_
 from helpers import setup_camera, l1_loss_v1, l1_loss_v2, weighted_l2_loss_v1, weighted_l2_loss_v2, quat_mult, \
-    o3d_knn, params2rendervar, params2cpu, save_params, params2rendervar2, setup_camera2
+    o3d_knn, params2rendervar, params2cpu, save_params, params2rendervar_f, setup_camera2
 from external import calc_ssim, calc_psnr, build_rotation, densify, update_params_and_optimizer
 import utils, debug_utils
 import clip_utils
@@ -19,6 +19,14 @@ import my_clip_debug
 import my_models
 from torch_splatting.train import train_for_feature as spllating_torch_train
 
+#from SAM import sam_proj_model
+
+import sys
+sys.path.append('./SAM')
+sys.path.append('./SAM/segment_anything_main')
+
+from SAM.sam_proj_model import sam_projection
+from SAM.segment_anything_main import extract_features_gaussian_splat
 
 
 def get_dataset(t, md, seq):
@@ -46,7 +54,7 @@ def get_dataset2(t, md, seq):
         seg = np.array(copy.deepcopy(Image.open(f"./data/{seq}/seg/{fn.replace('.jpg', '.png')}"))).astype(np.float32)
         seg = torch.tensor(seg).float().cuda()
         seg_col = torch.stack((seg, torch.zeros_like(seg), 1 - seg))
-        dataset.append({'cam': cam, 'im': im, 'seg': seg_col, 'id': c})
+        dataset.append({'cam': cam, 'im': im, 'seg': seg_col, 'id': c, 'image_path':f"./data/{seq}/ims/{fn}"})
     return dataset
 
 
@@ -73,6 +81,8 @@ def initialize_params(seq, md):
         'log_scales': np.tile(np.log(np.sqrt(mean3_sq_dist))[..., None], (1, 3)),
         'cam_m': np.zeros((max_cams, 3)),
         'cam_c': np.zeros((max_cams, 3)),
+        #adding features parameters:
+        'features': np.zeros((seg.shape[0], 32)),
     }
     params = {k: torch.nn.Parameter(torch.tensor(v).cuda().float().contiguous().requires_grad_(True)) for k, v in
               params.items()}
@@ -95,9 +105,59 @@ def initialize_optimizer(params, variables):
         'log_scales': 0.001,
         'cam_m': 1e-4,
         'cam_c': 1e-4,
+        'features': 0.0001,
+        #'sam_proj': 0.0001
     }
     param_groups = [{'params': [v], 'name': k, 'lr': lrs[k]} for k, v in params.items()]
     return torch.optim.Adam(param_groups, lr=0.0, eps=1e-15)
+
+def freeze_3DGaussian_params(paramas):
+    params_to_freeze = ['means3D', 'rgb_colors', 'unnorm_rotations', 'logit_opacities', 'log_scales', 'cam_m', 'cam_c']
+    for p in paramas:
+        if p  in params_to_freeze:
+            paramas[p].requires_grad = False
+    return paramas
+
+def freezeFeatures(params):
+    params_to_freeze = ['features']
+    for p in params:
+        if p  in params_to_freeze:
+            params[p].requires_grad = False
+    return params
+
+def unfeezeFeatures(params):
+    params_to_freeze = ['features']
+    for p in params:
+        if p  in params_to_freeze:
+            params[p].requires_grad = True
+    return params
+
+def unfreeze_3DGaussian_params(paramas):
+    params_to_freeze = ['means3D', 'rgb_colors', 'unnorm_rotations', 'logit_opacities', 'log_scales', 'cam_m', 'cam_c']
+    for p in paramas:
+        if p  in params_to_freeze:
+            paramas[p].requires_grad = True
+    return paramas
+
+def get_loss_feature(params, curr_data, samproj, device):
+    original_image_path = curr_data['image_path']
+    C,H,W = curr_data['im'].shape
+    sam_features = extract_features_gaussian_splat.extract_feature_from_sam(original_image_path,"vit_b","/home/nirit/3D/DynamicStaticGaussian/SAM/weights/sam_vit_b_01ec64.pth")
+    sam_features.to(device)
+    sam_fetures_reshaped = sam_features.reshape(-1, H*W).permute([1,0]).to(device)
+    low_dim_sam_features = samproj(
+            sam_fetures_reshaped
+            ).permute([1,0]).reshape(32, H, W)
+    
+    rendervar = params2rendervar_f(params)# to ddo change it so color precomp will be the features!!!!!!!!!
+    rendervar['means2D'].retain_grad()
+    im, radius = Renderer_contrastive_f(raster_settings=curr_data['cam'])(**rendervar)
+
+    gaussoin_features = im
+    loss = l1_loss_v1(low_dim_sam_features, gaussoin_features)
+
+    return loss
+
 
 
 def get_loss(params, curr_data, variables, is_initial_timestep):
@@ -207,12 +267,36 @@ def report_progress(params, data, i, progress_bar, every_i=100):
         progress_bar.set_postfix({"train img 0 PSNR": f"{psnr:.{7}f}"})
         progress_bar.update(every_i)
 
+def report_progress_f(params, data, j, progress_bar, samproj, device, every_j=100):
+    if j % every_j == 0:
+
+        original_image_path = data['image_path']
+        C,H,W = data['im'].shape
+        sam_features = extract_features_gaussian_splat.extract_feature_from_sam("vit_b","/home/nirit/3D/DynamicStaticGaussian/SAM/weights/sam_vit_b_01ec64.pth", original_image_path)
+        sam_features.to(device)
+        low_dim_sam_features = samproj(
+            sam_features.reshape(-1, H*W).permute([1,0])
+            ).permute([1,0]).reshape(32, H, W)
+
+        im, _, _, = Renderer_contrastive_f(raster_settings=data['cam'])(**params2rendervar_f(params))
+        #curr_id = data['id']
+        psnr = calc_psnr(im, low_dim_sam_features).mean()
+        progress_bar.set_postfix({"train img 0 PSNR": f"{psnr:.{7}f}"})
+        progress_bar.update(every_j)
+
 
 def train(seq, exp):
     vis_images = False
+    num_iter_features = 1000
     #create a list of means3D and rotations for each timestep
     means3D_list = []
     rotations_list = []
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    samproj = sam_projection()
+    samproj = samproj.to(device)
+    samproj.train()
+    samotimizer = torch.optim.Adam(samproj.parameters(), lr=1e-3, eps=1e-15)
 
     '''if os.path.exists(f"./output/{exp}/{seq}"):
         print(f"Experiment '{exp}' for sequence '{seq}' already exists. Exiting.")
@@ -223,6 +307,8 @@ def train(seq, exp):
     optimizer = initialize_optimizer(params, variables)
     output_params = []
     for t in range(num_timesteps):
+        params = unfreeze_3DGaussian_params(params)
+        params = freezeFeatures(params)
         dataset = get_dataset(t, md, seq)
         dataset2 = get_dataset2(t,md,seq)
         todo_dataset = []
@@ -231,9 +317,10 @@ def train(seq, exp):
             params, variables = initialize_per_timestep(params, variables, optimizer)
         num_iter_per_timestep = 10000 if is_initial_timestep else 2000
         progress_bar = tqdm(range(num_iter_per_timestep), desc=f"timestep {t}")
+        progress_bar_f = tqdm(range(num_iter_features), desc=f"timestep {t}")
         for i in range(num_iter_per_timestep):
             curr_data = get_batch(todo_dataset, dataset)
-            curr_data2 = get_batch(todo_dataset, dataset2)
+            #curr_data2 = get_batch(todo_dataset, dataset2)
             # debug clip:
             #im_to_encode = utils.render_param(params, curr_data, None, save_im=False)
             #wclip_features = my_clip_debug.clip_image_encoder(im_to_encode, device="cuda")
@@ -247,9 +334,9 @@ def train(seq, exp):
             #out_put = modelU(concat_params)
             #output_2_render  = utils.split_params(out_put)
             #check the renser_f I downloaded
-            rendervar = params2rendervar(params)
-            rendervar['means2D'].retain_grad()
-            im, radius = Renderer_contrastive_f(raster_settings=curr_data2['cam'])(**rendervar)
+            #rendervar = params2rendervar(params)
+            #rendervar['means2D'].retain_grad()
+            #im, radius = Renderer_contrastive_f(raster_settings=curr_data2['cam'])(**rendervar)
             loss, variables, renderd_im, original_im = get_loss(params, curr_data, variables, is_initial_timestep)
             loss.backward()
             with torch.no_grad():
@@ -262,10 +349,9 @@ def train(seq, exp):
                     params, variables = densify(params, variables, optimizer, i)
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
-                if i == 5000:# >=1: #change it in the future, anyhow 0 is for debug
-                    spllating_torch_train(params, dataset)
+        
                 #saving location and rotation of the gaussians at the last iteration of each timestep
-                if i == num_iter_per_timestep - 1:
+                '''if i == num_iter_per_timestep - 1:
                     means3D_list.append(params['means3D'].detach()) 
                     rotations_list.append(torch.nn.functional.normalize(params['unnorm_rotations'].detach()))
                     if not is_initial_timestep:
@@ -306,9 +392,26 @@ def train(seq, exp):
                                     if not os.path.exists(folder):
                                         os.makedirs(folder)
                                     img_name = os.path.join(folder,f"timestep_{t}_seq_{seq}_cam_id_{curr_data['id']}_obj_{obj}.png")
-                                    _ = utils.render_param(obj_params[obj], curr_data, img_name, save_im=True)
+                                    _ = utils.render_param(obj_params[obj], curr_data, img_name, save_im=True)'''
+            if i == 0: #num_iter_per_timestep-1:# lat iteration for timestep
+                params = freeze_3DGaussian_params(params)
+                params = unfeezeFeatures(params)
+                for j in range(num_iter_features):
+                    curr_data_f = get_batch(todo_dataset, dataset2)
+                    loss = get_loss_feature(params, curr_data_f,samproj, device)
+                    loss.backward()
+                    optimizer.step()
+                    samotimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    samotimizer.zero_grad()
+
+                    with torch.no_grad():
+                        report_progress_f(params, dataset2[0], j, progress_bar_f, samproj, device)
+                        
+
 
         progress_bar.close()
+        progress_bar_f.close()
         output_params.append(params2cpu(params, is_initial_timestep))
         if is_initial_timestep:
             variables = initialize_post_first_timestep(params, variables, optimizer)

@@ -11,7 +11,7 @@ def extract_feature_from_sam(
         sam_model_name: str,
         chechpoint_path: str):
    
-    pil_image = Image.open(image_path).convert('RGB')
+    pil_image = Image.open(im_path).convert('RGB')
 
     # Convert the PIL image to a numpy array
     numpy_image = np.array(pil_image)
